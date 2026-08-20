@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: timetable-management
+    runtime: docker
+    plan: free
+

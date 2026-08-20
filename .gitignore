@@ -6,3 +6,10 @@ bin/
 TimetableManagement.jar
 ,mv
 *.save
+bin/
+*.class
+*.jar
+*.save
+*.broken
+*.before_crud_fix
+*.final_backup

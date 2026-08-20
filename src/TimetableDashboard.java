@@ -36,16 +36,17 @@ import javax.swing.table.TableRowSorter;
 public class TimetableDashboard extends JFrame {
 
     // =========================================================
-// DATABASE
-// =========================================================
+    // DATABASE
+    // =========================================================
 
-    private Connection getConnection()
-        throws SQLException {
+    private static final String URL =
+            "jdbc:mariadb://localhost:3306/timetable_management";
 
-    return DatabaseConnection.getConnection();
-}
+    private static final String USER =
+            "timetable_user";
 
-
+    private static final String PASSWORD =
+            "timetable123";
 
     // =========================================================
     // COLORS
@@ -121,6 +122,19 @@ public class TimetableDashboard extends JFrame {
         buildInterface();
     }
 
+    // =========================================================
+    // DATABASE CONNECTION
+    // =========================================================
+
+    private Connection getConnection()
+            throws SQLException {
+
+        return DriverManager.getConnection(
+                URL,
+                USER,
+                PASSWORD
+        );
+    }
 
     // =========================================================
     // MAIN INTERFACE
@@ -1425,122 +1439,64 @@ public class TimetableDashboard extends JFrame {
             String end) {
 
         try {
+            int classId = Integer.parseInt(classIdText.trim());
+            int subjectId = Integer.parseInt(subjectIdText.trim());
 
-            int classId =
-                    Integer.parseInt(
-                            classIdText.trim()
-                    );
+            Integer facultyId = parseNullableInteger(facultyIdText);
+            Integer roomId = parseNullableInteger(roomIdText);
 
-            int subjectId =
-                    Integer.parseInt(
-                            subjectIdText.trim()
-                    );
-
-            Integer facultyId =
-                    parseNullableInteger(
-                            facultyIdText
-                    );
-
-            Integer roomId =
-                    parseNullableInteger(
-                            roomIdText
-                    );
-
-            if (start.trim().isEmpty()
-                    || end.trim().isEmpty()) {
-
+            if (start.trim().isEmpty() || end.trim().isEmpty()) {
                 JOptionPane.showMessageDialog(
                         this,
                         "Start and end time are required."
                 );
-
                 return false;
             }
 
             if (start.compareTo(end) >= 0) {
-
                 JOptionPane.showMessageDialog(
                         this,
                         "End time must be after start time."
                 );
-
                 return false;
             }
 
             String sql =
-                    "INSERT INTO timetable "
-                            + "(class_id, subject_id, faculty_id, "
-                            + "room_id, day, start_time, end_time) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+                    "INSERT INTO timetable " +
+                    "(class_id, subject_id, faculty_id, room_id, day, start_time, end_time) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
-            try (
-                    Connection con =
-                            getConnection();
+            try (Connection con = DatabaseConnection.getConnection();
+                 PreparedStatement ps = con.prepareStatement(sql)) {
 
-                    PreparedStatement ps =
-                            con.prepareStatement(sql)
-            ) {
+                ps.setInt(1, classId);
+                ps.setInt(2, subjectId);
 
-                ps.setInt(
-                        1,
-                        classId
-                );
+                if (facultyId == null)
+                    ps.setNull(3, java.sql.Types.INTEGER);
+                else
+                    ps.setInt(3, facultyId);
 
-                ps.setInt(
-                        2,
-                        subjectId
-                );
+                if (roomId == null)
+                    ps.setNull(4, java.sql.Types.INTEGER);
+                else
+                    ps.setInt(4, roomId);
 
-                if (facultyId == null) {
-                    ps.setNull(
-                            3,
-                            java.sql.Types.INTEGER
+                ps.setString(5, day);
+                ps.setString(6, start.trim());
+                ps.setString(7, end.trim());
+
+                int affected = ps.executeUpdate();
+
+                if (affected == 1) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Timetable added successfully!"
                     );
-                } else {
-                    ps.setInt(
-                            3,
-                            facultyId
-                    );
+                    showTimetable();
+                    return true;
                 }
-
-                if (roomId == null) {
-                    ps.setNull(
-                            4,
-                            java.sql.Types.INTEGER
-                    );
-                } else {
-                    ps.setInt(
-                            4,
-                            roomId
-                    );
-                }
-
-                ps.setString(
-                        5,
-                        day
-                );
-
-                ps.setString(
-                        6,
-                        start.trim()
-                );
-
-                ps.setString(
-                        7,
-                        end.trim()
-                );
-
-                ps.executeUpdate();
             }
-
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Class added successfully!",
-                    "Success",
-                    JOptionPane.INFORMATION_MESSAGE
-            );
-
-            return true;
 
         } catch (NumberFormatException e) {
 
@@ -1557,280 +1513,137 @@ public class TimetableDashboard extends JFrame {
         return false;
     }
 
+
     // =========================================================
-    // EDIT
+    // EDIT SELECTED TIMETABLE
     // =========================================================
 
     private void editSelectedClass() {
 
-        int row =
-                timetableTable.getSelectedRow();
+        int row = timetableTable.getSelectedRow();
 
         if (row == -1) {
-
             JOptionPane.showMessageDialog(
                     this,
-                    "Please select a timetable row first."
+                    "Please select a timetable record first."
             );
-
             return;
         }
 
-        int modelRow =
-                timetableTable.convertRowIndexToModel(
-                        row
-                );
+        int modelRow = timetableTable.convertRowIndexToModel(row);
 
-        int timetableId =
-                Integer.parseInt(
-                        timetableModel.getValueAt(
-                                modelRow,
-                                0
-                        ).toString()
-                );
-
-        showEditForm(
-                timetableId
+        int timetableId = Integer.parseInt(
+                timetableTable.getModel()
+                        .getValueAt(modelRow, 0)
+                        .toString()
         );
-    }
 
-    // =========================================================
-    // EDIT FORM
-    // =========================================================
+        try (Connection con = DatabaseConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(
+                     "SELECT class_id, subject_id, faculty_id, room_id, " +
+                     "day, start_time, end_time " +
+                     "FROM timetable WHERE timetable_id=?")) {
 
-    private void showEditForm(
-            int timetableId) {
+            ps.setInt(1, timetableId);
 
-        String sql =
-                "SELECT class_id, subject_id, faculty_id, "
-                        + "room_id, day, start_time, end_time "
-                        + "FROM timetable "
-                        + "WHERE timetable_id=?";
+            try (ResultSet rs = ps.executeQuery()) {
 
-        try (
-                Connection con =
-                        getConnection();
-
-                PreparedStatement ps =
-                        con.prepareStatement(sql)
-        ) {
-
-            ps.setInt(
-                    1,
-                    timetableId
-            );
-
-            ResultSet rs =
-                    ps.executeQuery();
-
-            if (!rs.next()) {
-
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Record not found."
-                );
-
-                return;
-            }
-
-            JTextField classId =
-                    new JTextField(
-                            String.valueOf(
-                                    rs.getInt(
-                                            "class_id"
-                                    )
-                            )
+                if (!rs.next()) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Timetable record not found."
                     );
+                    return;
+                }
 
-            JTextField subjectId =
-                    new JTextField(
-                            String.valueOf(
-                                    rs.getInt(
-                                            "subject_id"
-                                    )
-                            )
-                    );
+                JTextField classId =
+                        new JTextField(String.valueOf(rs.getInt("class_id")));
 
-            JTextField facultyId =
-                    new JTextField();
+                JTextField subjectId =
+                        new JTextField(String.valueOf(rs.getInt("subject_id")));
 
-            if (rs.getObject("faculty_id") != null) {
-
-                facultyId.setText(
-                        String.valueOf(
-                                rs.getInt(
-                                        "faculty_id"
-                                )
-                        )
-                );
-            }
-
-            JTextField roomId =
-                    new JTextField();
-
-            if (rs.getObject("room_id") != null) {
-
-                roomId.setText(
-                        String.valueOf(
-                                rs.getInt(
-                                        "room_id"
-                                )
-                        )
-                );
-            }
-
-            JComboBox<String> day =
-                    new JComboBox<>(
-                            new String[]{
-                                    "Monday",
-                                    "Tuesday",
-                                    "Wednesday",
-                                    "Thursday",
-                                    "Friday",
-                                    "Saturday"
-                            }
-                    );
-
-            day.setSelectedItem(
-                    rs.getString("day")
-            );
-
-            JTextField start =
-                    new JTextField(
-                            rs.getString(
-                                    "start_time"
-                            )
-                    );
-
-            JTextField end =
-                    new JTextField(
-                            rs.getString(
-                                    "end_time"
-                            )
-                    );
-
-            JPanel form =
-                    createFormPanel();
-
-            addField(
-                    form,
-                    "Class ID *",
-                    classId
-            );
-
-            addField(
-                    form,
-                    "Subject ID *",
-                    subjectId
-            );
-
-            addField(
-                    form,
-                    "Faculty ID",
-                    facultyId
-            );
-
-            addField(
-                    form,
-                    "Room ID",
-                    roomId
-            );
-
-            addField(
-                    form,
-                    "Day",
-                    day
-            );
-
-            addField(
-                    form,
-                    "Start Time",
-                    start
-            );
-
-            addField(
-                    form,
-                    "End Time",
-                    end
-            );
-
-            JPanel buttons =
-                    new JPanel(
-                            new FlowLayout(
-                                    FlowLayout.LEFT
-                            )
-                    );
-
-            buttons.setOpaque(false);
-
-            JButton update =
-                    createButton(
-                            "Update",
-                            PURPLE
-                    );
-
-            JButton cancel =
-                    createButton(
-                            "Cancel",
-                            BLUE
-                    );
-
-            update.addActionListener(
-                    e -> {
-
-                        updateTimetable(
-                                timetableId,
-                                classId.getText(),
-                                subjectId.getText(),
-                                facultyId.getText(),
-                                roomId.getText(),
-                                day.getSelectedItem().toString(),
-                                start.getText(),
-                                end.getText()
+                int facultyValue = rs.getInt("faculty_id");
+                JTextField facultyId =
+                        new JTextField(
+                                rs.wasNull() ? "" : String.valueOf(facultyValue)
                         );
-                    }
-            );
 
-            cancel.addActionListener(
-                    e -> showTimetable()
-            );
+                int roomValue = rs.getInt("room_id");
+                JTextField roomId =
+                        new JTextField(
+                                rs.wasNull() ? "" : String.valueOf(roomValue)
+                        );
 
-            buttons.add(update);
-            buttons.add(cancel);
+                JComboBox<String> day =
+                        new JComboBox<>(
+                                new String[]{
+                                        "Monday",
+                                        "Tuesday",
+                                        "Wednesday",
+                                        "Thursday",
+                                        "Friday",
+                                        "Saturday"
+                                }
+                        );
 
-            JPanel page =
-                    createPagePanel(
-                            "Edit Timetable",
-                            "Update timetable record #" +
-                                    timetableId
-                    );
+                day.setSelectedItem(rs.getString("day"));
 
-            JPanel wrapper =
-                    new JPanel(
-                            new BorderLayout()
-                    );
+                JTextField start =
+                        new JTextField(rs.getString("start_time"));
 
-            wrapper.setOpaque(false);
+                JTextField end =
+                        new JTextField(rs.getString("end_time"));
 
-            wrapper.add(
-                    form,
-                    BorderLayout.NORTH
-            );
+                JPanel panel = new JPanel(
+                        new GridLayout(0, 2, 8, 8)
+                );
 
-            wrapper.add(
-                    buttons,
-                    BorderLayout.SOUTH
-            );
+                panel.add(new JLabel("Class ID:"));
+                panel.add(classId);
 
-            page.add(
-                    wrapper,
-                    BorderLayout.NORTH
-            );
+                panel.add(new JLabel("Subject ID:"));
+                panel.add(subjectId);
 
-            setPage(page);
+                panel.add(new JLabel("Faculty ID:"));
+                panel.add(facultyId);
+
+                panel.add(new JLabel("Room ID:"));
+                panel.add(roomId);
+
+                panel.add(new JLabel("Day:"));
+                panel.add(day);
+
+                panel.add(new JLabel("Start Time:"));
+                panel.add(start);
+
+                panel.add(new JLabel("End Time:"));
+                panel.add(end);
+
+                int result = JOptionPane.showConfirmDialog(
+                        this,
+                        panel,
+                        "Edit Timetable #" + timetableId,
+                        JOptionPane.OK_CANCEL_OPTION,
+                        JOptionPane.PLAIN_MESSAGE
+                );
+
+                if (result != JOptionPane.OK_OPTION) {
+                    return;
+                }
+
+                updateTimetable(
+                        timetableId,
+                        classId.getText(),
+                        subjectId.getText(),
+                        facultyId.getText(),
+                        roomId.getText(),
+                        day.getSelectedItem().toString(),
+                        start.getText(),
+                        end.getText()
+                );
+            }
 
         } catch (SQLException e) {
-
             showError(e);
         }
     }
@@ -1850,125 +1663,70 @@ public class TimetableDashboard extends JFrame {
             String end) {
 
         try {
+            int classId = Integer.parseInt(classIdText.trim());
+            int subjectId = Integer.parseInt(subjectIdText.trim());
 
-            int classId =
-                    Integer.parseInt(
-                            classIdText.trim()
-                    );
+            Integer facultyId = parseNullableInteger(facultyIdText);
+            Integer roomId = parseNullableInteger(roomIdText);
 
-            int subjectId =
-                    Integer.parseInt(
-                            subjectIdText.trim()
-                    );
-
-            Integer facultyId =
-                    parseNullableInteger(
-                            facultyIdText
-                    );
-
-            Integer roomId =
-                    parseNullableInteger(
-                            roomIdText
-                    );
+            if (start.trim().isEmpty() || end.trim().isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Start and end time are required."
+                );
+                return;
+            }
 
             if (start.compareTo(end) >= 0) {
-
                 JOptionPane.showMessageDialog(
                         this,
                         "End time must be after start time."
                 );
-
                 return;
             }
 
             String sql =
-                    "UPDATE timetable SET "
-                            + "class_id=?, "
-                            + "subject_id=?, "
-                            + "faculty_id=?, "
-                            + "room_id=?, "
-                            + "day=?, "
-                            + "start_time=?, "
-                            + "end_time=? "
-                            + "WHERE timetable_id=?";
+                    "UPDATE timetable SET " +
+                    "class_id=?, subject_id=?, faculty_id=?, room_id=?, " +
+                    "day=?, start_time=?, end_time=? " +
+                    "WHERE timetable_id=?";
 
-            try (
-                    Connection con =
-                            getConnection();
+            try (Connection con = DatabaseConnection.getConnection();
+                 PreparedStatement ps = con.prepareStatement(sql)) {
 
-                    PreparedStatement ps =
-                            con.prepareStatement(sql)
-            ) {
+                ps.setInt(1, classId);
+                ps.setInt(2, subjectId);
 
-                ps.setInt(
-                        1,
-                        classId
-                );
+                if (facultyId == null)
+                    ps.setNull(3, java.sql.Types.INTEGER);
+                else
+                    ps.setInt(3, facultyId);
 
-                ps.setInt(
-                        2,
-                        subjectId
-                );
+                if (roomId == null)
+                    ps.setNull(4, java.sql.Types.INTEGER);
+                else
+                    ps.setInt(4, roomId);
 
-                if (facultyId == null) {
+                ps.setString(5, day);
+                ps.setString(6, start.trim());
+                ps.setString(7, end.trim());
+                ps.setInt(8, timetableId);
 
-                    ps.setNull(
-                            3,
-                            java.sql.Types.INTEGER
+                int affected = ps.executeUpdate();
+
+                if (affected == 1) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Timetable updated successfully!"
                     );
-
+                    showTimetable();
                 } else {
-
-                    ps.setInt(
-                            3,
-                            facultyId
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "No timetable record was updated."
                     );
                 }
-
-                if (roomId == null) {
-
-                    ps.setNull(
-                            4,
-                            java.sql.Types.INTEGER
-                    );
-
-                } else {
-
-                    ps.setInt(
-                            4,
-                            roomId
-                    );
-                }
-
-                ps.setString(
-                        5,
-                        day
-                );
-
-                ps.setString(
-                        6,
-                        start.trim()
-                );
-
-                ps.setString(
-                        7,
-                        end.trim()
-                );
-
-                ps.setInt(
-                        8,
-                        timetableId
-                );
-
-                ps.executeUpdate();
             }
-
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Timetable updated successfully!"
-            );
-
-            showTimetable();
 
         } catch (NumberFormatException e) {
 
@@ -1989,108 +1747,112 @@ public class TimetableDashboard extends JFrame {
 
     private void deleteSelectedClass() {
 
-    int row = timetableTable.getSelectedRow();
+        int row = timetableTable.getSelectedRow();
 
-    if (row == -1) {
-        JOptionPane.showMessageDialog(
-                this,
-                "Please select a timetable record first."
-        );
-        return;
-    }
-
-    int modelRow =
-            timetableTable.convertRowIndexToModel(row);
-
-    int id =
-            Integer.parseInt(
-                    timetableModel.getValueAt(
-                            modelRow,
-                            0
-                    ).toString()
-            );
-
-    int confirm =
-            JOptionPane.showConfirmDialog(
-                    this,
-                    "Delete timetable record #" + id + "?",
-                    "Confirm Delete",
-                    JOptionPane.YES_NO_OPTION
-            );
-
-    if (confirm != JOptionPane.YES_OPTION) {
-        return;
-    }
-
-    String deleteFacultySql =
-            "DELETE FROM timetable_faculty WHERE timetable_id=?";
-
-    String deleteDetailsSql =
-            "DELETE FROM timetable_details WHERE timetable_id=?";
-
-    String deleteTimetableSql =
-            "DELETE FROM timetable WHERE timetable_id=?";
-
-    try (Connection con = getConnection()) {
-
-        con.setAutoCommit(false);
-
-        try (
-                PreparedStatement psFaculty =
-                        con.prepareStatement(deleteFacultySql);
-
-                PreparedStatement psDetails =
-                        con.prepareStatement(deleteDetailsSql);
-
-                PreparedStatement psTimetable =
-                        con.prepareStatement(deleteTimetableSql)
-        ) {
-
-            // 1. Delete dependent faculty records
-            psFaculty.setInt(1, id);
-            psFaculty.executeUpdate();
-
-            // 2. Delete dependent timetable details
-            psDetails.setInt(1, id);
-            psDetails.executeUpdate();
-
-            // 3. Delete the main timetable record
-            psTimetable.setInt(1, id);
-            int deleted = psTimetable.executeUpdate();
-
-            if (deleted == 0) {
-                throw new SQLException(
-                        "Timetable record was not found."
-                );
-            }
-
-            con.commit();
-
+        if (row == -1) {
             JOptionPane.showMessageDialog(
                     this,
-                    "Record deleted successfully."
+                    "Please select a timetable record first."
             );
+            return;
+        }
 
-            loadTimetableData();
+        int modelRow =
+                timetableTable.convertRowIndexToModel(row);
+
+        int timetableId =
+                Integer.parseInt(
+                        timetableTable.getModel()
+                                .getValueAt(modelRow, 0)
+                                .toString()
+                );
+
+        int confirm = JOptionPane.showConfirmDialog(
+                this,
+                "Are you sure you want to delete timetable record #" +
+                        timetableId + "?",
+                "Confirm Delete",
+                JOptionPane.YES_NO_OPTION
+        );
+
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+
+        try (Connection con = DatabaseConnection.getConnection()) {
+
+            con.setAutoCommit(false);
+
+            try {
+
+                // Delete dependent records first.
+                try (PreparedStatement ps =
+                             con.prepareStatement(
+                                     "DELETE FROM timetable_faculty " +
+                                     "WHERE timetable_id=?")) {
+
+                    ps.setInt(1, timetableId);
+                    ps.executeUpdate();
+                }
+
+                try (PreparedStatement ps =
+                             con.prepareStatement(
+                                     "DELETE FROM timetable_details " +
+                                     "WHERE timetable_id=?")) {
+
+                    ps.setInt(1, timetableId);
+                    ps.executeUpdate();
+                }
+
+                // Now delete the timetable parent record.
+                int affected;
+
+                try (PreparedStatement ps =
+                             con.prepareStatement(
+                                     "DELETE FROM timetable " +
+                                     "WHERE timetable_id=?")) {
+
+                    ps.setInt(1, timetableId);
+                    affected = ps.executeUpdate();
+                }
+
+                if (affected != 1) {
+                    con.rollback();
+
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Timetable record was not found."
+                    );
+                    return;
+                }
+
+                con.commit();
+
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Timetable record deleted successfully."
+                );
+
+                showTimetable();
+
+            } catch (SQLException e) {
+
+                con.rollback();
+                throw e;
+            }
 
         } catch (SQLException e) {
 
-            con.rollback();
-            throw e;
+            showError(e);
         }
-
-    } catch (SQLException e) {
-
-        showError(e);
     }
-}
+
     // =========================================================
     // SUBJECTS
     // =========================================================
 
     private void showSubjects() {
-
-        showSimpleDatabaseTable(
+    showSimpleDatabaseTable(
                 "Subjects",
                 "SELECT subject_id, subject_name, subject_code, faculty_id "
                         + "FROM subject",
